@@ -31,6 +31,7 @@ export interface Options {
   org?: string | null;
   path: string;
   docker?: boolean;
+  configs?: boolean;
   file?: string;
   policy?: string;
   json?: boolean;
