@@ -42,31 +42,44 @@ import { extractPackageManager } from '../plugins/extract-package-manager';
 import { getSubProjectCount } from '../plugins/get-sub-project-count';
 import { serializeCallGraphWithMetrics } from '../reachable-vulns';
 import { validateOptions } from '../options-validator';
+import {
+  assembleCloudConfigLocalPayloads,
+  parseCloudConfigRes,
+} from './run-cloud-config-test';
 import { Payload, PayloadBody, DepTreeFromResolveDeps } from './types';
 
 const debug = debugModule('snyk');
 
 export = runTest;
 
-
-
-
-async function runTest(
-  projectType: SupportedProjectTypes | undefined,
+async function sendAndParseResults(
+  payloads: Payload[],
+  spinnerLbl: string,
   root: string,
   options: Options & TestOptions,
 ): Promise<TestResult[]> {
   const results: TestResult[] = [];
-  const spinnerLbl = 'Querying vulnerabilities database...';
-  try {
-    await validateOptions(options, options.packageManager);
-    const payloads = await assemblePayloads(root, options);
-    for (const payload of payloads) {
-      const payloadPolicy = payload.body && payload.body.policy;
-      const depGraph = payload.body && payload.body.depGraph;
+
+  for (const payload of payloads) {
+    await spinner(spinnerLbl);
+    //TODO: check by the schema type
+    if (options.configs) {
+      // analytics.add('fileName', !!fileName);
+      let res = (await sendTestPayload(payload)) as LegacyVulnApiResult;
+
+      const targetFile = 'targetFile';
+      const projectName = 'projectName';
+      const result = await parseCloudConfigRes(res, targetFile, projectName, options.severityThreshold);
+      results.push(result);
+    } else {
+      const depGraphPayload: PayloadBody = payload.body as PayloadBody;
+      const payloadPolicy = depGraphPayload && depGraphPayload.policy;
+      const depGraph = depGraphPayload && depGraphPayload.depGraph;
       const pkgManager =
-        depGraph && depGraph.pkgManager && depGraph.pkgManager.name;
-      const targetFile = payload.body && payload.body.targetFile;
+        depGraph &&
+        depGraph.pkgManager &&
+        (depGraph.pkgManager.name as SupportedProjectTypes);
+      const targetFile = depGraphPayload && depGraphPayload.targetFile;
       const projectName =
         _.get(payload, 'body.projectNameOverride') ||
         _.get(payload, 'body.originalProjectName');
@@ -75,17 +88,16 @@ async function runTest(
 
       let dockerfilePackages;
       if (
-        payload.body &&
-        payload.body.docker &&
-        payload.body.docker.dockerfilePackages
+        depGraphPayload &&
+        depGraphPayload.docker &&
+        depGraphPayload.docker.dockerfilePackages
       ) {
-        dockerfilePackages = payload.body.docker.dockerfilePackages;
+        dockerfilePackages = depGraphPayload.docker.dockerfilePackages;
       }
-      await spinner(spinnerLbl);
       analytics.add('depGraph', !!depGraph);
-      analytics.add('isDocker', !!(payload.body && payload.body.docker));
+      analytics.add('isDocker', !!(depGraphPayload && depGraphPayload.docker));
       // Type assertion might be a lie, but we are correcting that below
-      const res = (await sendTestPayload(payload)) as LegacyVulnApiResult;
+      let res = (await sendTestPayload(payload)) as LegacyVulnApiResult;
 
       const result = await parseRes(
         depGraph,
@@ -106,7 +118,20 @@ async function runTest(
         displayTargetFile,
       });
     }
-    return results;
+  }
+  return results;
+}
+
+async function runTest(
+  projectType: SupportedProjectTypes | undefined,
+  root: string,
+  options: Options & TestOptions,
+): Promise<TestResult[]> {
+  const spinnerLbl = 'Querying vulnerabilities database...';
+  try {
+    await validateOptions(options, options.packageManager);
+    const payloads = await assemblePayloads(root, options);
+    return sendAndParseResults(payloads, spinnerLbl, root, options);
   } catch (error) {
     debug('Error running test', { error });
     // handling denial from registry because of the feature flag
@@ -291,12 +316,17 @@ async function assembleLocalPayloads(
   options: Options & TestOptions,
 ): Promise<Payload[]> {
   // For --all-projects packageManager is yet undefined here. Use 'all'
-  const analysisType =
-    (options.docker ? 'docker' : options.packageManager) || 'all';
+
+  let analysisTypeText = options.packageManager + ' dependencies for ';
+  if (options.docker) {
+    analysisTypeText = 'docker dependencies for ';
+  } else if (options.configs) {
+    analysisTypeText = 'Cloud configurations for ';
+  }
+
   const spinnerLbl =
     'Analyzing ' +
-    analysisType +
-    ' dependencies for ' +
+    analysisTypeText +
     (path.relative('.', path.join(root, options.file || '')) ||
       path.relative('..', '.') + ' project dir');
 
@@ -304,6 +334,9 @@ async function assembleLocalPayloads(
     const payloads: Payload[] = [];
 
     await spinner(spinnerLbl);
+    if (options.configs) {
+      return assembleCloudConfigLocalPayloads(options);
+    }
     const deps = await getDepsFromPlugin(root, options);
     analytics.add('pluginName', deps.plugin.name);
     const javaVersion = _.get(
