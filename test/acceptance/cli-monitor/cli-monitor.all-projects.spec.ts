@@ -12,6 +12,115 @@ interface AcceptanceTests {
 export const AllProjectsTests: AcceptanceTests = {
   language: 'Mixed',
   tests: {
+    '`monitor yarn-workspaces --yarn-workspaces --detection-depth=1`': (
+      params,
+      utils,
+    ) => async (t) => {
+      utils.chdirWorkspaces();
+      const loadPlugin = sinon.stub(params.plugins, 'loadPlugin');
+
+      const result = await params.cli.monitor('yarn-workspaces', {
+        yarnWorkspaces: true,
+        detectionDepth: 1,
+      });
+      t.ok(loadPlugin.withArgs('npm').notCalled, 'skips load plugin');
+      t.teardown(loadPlugin.restore);
+
+      t.match(result, 'yarn/graph/some/project-id', 'yarn project in output');
+
+      // Pop all calls to server and filter out calls to `featureFlag` endpoint
+      const requests = params.server
+        .popRequests(2)
+        .filter((req) => req.url.includes('/monitor/'));
+
+      t.equal(requests.length, 1, 'correct amount of monitor requests');
+      const pluginsWithoutTargetFileInBody = [
+        'snyk-nodejs-lockfile-parser',
+        'bundled:maven',
+        'bundled:rubygems',
+      ];
+
+      requests.forEach((req) => {
+        t.match(req.url, /\/api\/v1\/monitor\/(yarn)/, 'puts at correct url');
+        if (pluginsWithoutTargetFileInBody.includes(req.body.meta.pluginName)) {
+          t.notOk(
+            req.body.targetFile,
+            `doesn't send the targetFile for ${req.body.meta.pluginName}`,
+          );
+        } else {
+          t.ok(
+            req.body.targetFile,
+            `does send the targetFile ${req.body.meta.pluginName}`,
+          );
+        }
+        t.equal(req.method, 'PUT', 'makes PUT request');
+        t.equal(
+          req.headers['x-snyk-cli-version'],
+          params.versionNumber,
+          'sends version number',
+        );
+      });
+    },
+    '`monitor yarn-workspaces --yarn-workspaces --detection-depth=5`': (
+      params,
+      utils,
+    ) => async (t) => {
+      utils.chdirWorkspaces();
+      const loadPlugin = sinon.stub(params.plugins, 'loadPlugin');
+      t.teardown(loadPlugin.restore);
+
+      const result = await params.cli.monitor('yarn-workspaces', {
+        yarnWorkspaces: true,
+        detectionDepth: 5,
+      });
+      t.ok(loadPlugin.withArgs('yarn').notCalled, 'skips load plugin');
+
+      t.match(result, 'yarn/graph/some/project-id', 'yarn project in output');
+      t.match(
+        result,
+        'Monitoring yarn-workspaces (tomatoes)',
+        'yarn project in output',
+      );
+      t.match(
+        result,
+        'Monitoring yarn-workspaces (apples)',
+        'yarn project in output',
+      );
+      t.match(
+        result,
+        'Monitoring yarn-workspaces (package.json)',
+        'yarn project in output',
+      );
+
+      // Pop all calls to server and filter out calls to `featureFlag` endpoint
+      const requests = params.server
+        .popRequests(6)
+        .filter((req) => req.url.includes('/monitor/'));
+      t.equal(requests.length, 3, 'correct amount of monitor requests');
+
+      const pluginsWithoutTargetFileInBody = ['snyk-nodejs-lockfile-parser'];
+
+      requests.forEach((req) => {
+        t.match(req.url, /\/api\/v1\/monitor\/(yarn)/, 'puts at correct url');
+        if (pluginsWithoutTargetFileInBody.includes(req.body.meta.pluginName)) {
+          t.notOk(
+            req.body.targetFile,
+            `doesn't send the targetFile for ${req.body.meta.pluginName}`,
+          );
+        } else {
+          t.ok(
+            req.body.targetFile,
+            `does send the targetFile ${req.body.meta.pluginName}`,
+          );
+        }
+        t.equal(req.method, 'PUT', 'makes PUT request');
+        t.equal(
+          req.headers['x-snyk-cli-version'],
+          params.versionNumber,
+          'sends version number',
+        );
+      });
+    },
     '`monitor mono-repo-project --all-projects --detection-depth=1`': (
       params,
       utils,

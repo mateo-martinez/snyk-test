@@ -25,6 +25,7 @@ import { PythonTests } from './cli-test.python.spec';
 import { RubyTests } from './cli-test.ruby.spec';
 import { SbtTests } from './cli-test.sbt.spec';
 import { YarnTests } from './cli-test.yarn.spec';
+import { YarnWorkspacesTests } from './cli-test.yarn-workspaces.spec';
 import { AllProjectsTests } from './cli-test.all-projects.spec';
 
 const languageTests: AcceptanceTests[] = [
@@ -40,6 +41,7 @@ const languageTests: AcceptanceTests[] = [
   RubyTests,
   SbtTests,
   YarnTests,
+  YarnWorkspacesTests,
 ];
 
 const { test, only } = tap;
