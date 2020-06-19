@@ -17,7 +17,7 @@ export const AllProjectsTests: AcceptanceTests = {
       utils,
     ) => async (t) => {
       utils.chdirWorkspaces();
-      await params.cli.monitor('mono-repo-with-ignores ', {
+      await params.cli.monitor('mono-repo-with-ignores', {
         allProjects: true,
         detectionDepth: 1,
       });
